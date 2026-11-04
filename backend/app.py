@@ -46,25 +46,38 @@ def check_rate_limit(request: Request):
                             headers={"Retry-After": "3600"})
     q.append(now)
 
-def require_auth(request: Request):
-    """Optional HTTP Basic gate. Active only when APP_PASSWORD is set."""
+app = FastAPI(title="MindMesh API")
+
+
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next):
     password = os.getenv("APP_PASSWORD")
+
     if not password or request.url.path == "/api/health":
-        return
+        return await call_next(request)
+
     header = request.headers.get("authorization", "")
+
     if header.startswith("Basic "):
         try:
-            user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-            if secrets.compare_digest(user, os.getenv("APP_USER", "mindmesh")) and \
-               secrets.compare_digest(pw, password):
-                return
+            decoded = base64.b64decode(header[6:]).decode()
+            user, _, pw = decoded.partition(":")
+
+            if (
+                secrets.compare_digest(user, os.getenv("APP_USER", "mindmesh"))
+                and secrets.compare_digest(pw, password)
+            ):
+                return await call_next(request)
+
         except Exception:
             pass
-    raise HTTPException(401, "Authentication required",
-                        headers={"WWW-Authenticate": 'Basic realm="MindMesh"'})
 
-
-app = FastAPI(title="MindMesh API", dependencies=[Depends(require_auth)])
+    return Response(
+        content='{"detail":"Authentication required"}',
+        status_code=401,
+        media_type="application/json",
+        headers={"WWW-Authenticate": 'Basic realm="MindMesh"'}
+    )
 
 origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
