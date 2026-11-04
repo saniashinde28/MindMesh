@@ -1,0 +1,13 @@
+# New for the web layer (merge with your existing requirements)
+fastapi
+uvicorn[standard]
+reportlab
+# Already imported by your code
+python-dotenv
+langchain
+langchain-core
+langchain-groq
+tavily-python
+requests
+beautifulsoup4
+rich
