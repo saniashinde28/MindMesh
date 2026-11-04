@@ -83,7 +83,7 @@ class InMemoryJobStore:
 
 
 class JobManager:
-    def __init__(self, store: JobStore, max_age_s: float = 3600, max_concurrent: int = 2):
+    def __init__(self, store: JobStore, max_age_s: float = 3600, max_concurrent: int = 1):
         self.store, self.max_age_s = store, max_age_s
         self._slots = threading.BoundedSemaphore(max_concurrent)
 
