@@ -40,6 +40,10 @@ Structure the report as:
 - Conclusion
 - Sources (list all URLs found in the research)
 
+Formatting rules:
+- Write Key Findings as numbered points. Give each point a short bold heading, followed by a full explanatory paragraph.
+- Do not use tables anywhere in the report. Use paragraphs and simple lists only.
+
 Be detailed, factual and professional."""),
 ])
 

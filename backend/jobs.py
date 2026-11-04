@@ -83,8 +83,9 @@ class InMemoryJobStore:
 
 
 class JobManager:
-    def __init__(self, store: JobStore, max_age_s: float = 3600):
+    def __init__(self, store: JobStore, max_age_s: float = 3600, max_concurrent: int = 2):
         self.store, self.max_age_s = store, max_age_s
+        self._slots = threading.BoundedSemaphore(max_concurrent)
 
     def submit(self, topic: str) -> str:
         self.store.prune(self.max_age_s)
@@ -94,13 +95,14 @@ class JobManager:
         return job_id
 
     def _run(self, job_id, topic):
-        s = self.store
-        s.set_running(job_id)
+        with self._slots:  # the job stays "queued" until a slot is free
+            s = self.store
+            s.set_running(job_id)
 
-        def on_event(e):  # called by pipeline.py at real stage boundaries
-            s.record_stage(job_id, e["stage"], e["status"], e["content"] if e["status"] == "failed" else None)
+            def on_event(e):
+                s.record_stage(job_id, e["stage"], e["status"], e["content"] if e["status"] == "failed" else None)
 
-        try:
-            s.finish(job_id, result=run_research_pipeline(topic, on_event=on_event))
-        except Exception as e:
-            s.finish(job_id, error=f"{type(e).__name__}: {e}")
+            try:
+                s.finish(job_id, result=run_research_pipeline(topic, on_event=on_event))
+            except Exception as e:
+                s.finish(job_id, error=f"{type(e).__name__}: {e}")

@@ -1,15 +1,55 @@
-import asyncio, json, re
-from fastapi import FastAPI, HTTPException, Request
+import base64
+import os
+import secrets
+import re
+import json
+import asyncio
+
+from pathlib import Path
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request
+)
+
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response, StreamingResponse
+
 from pydantic import BaseModel, Field
+
+from jobs import (
+    InMemoryJobStore,
+    JobManager,
+    TERMINAL
+)
+
 from export import build_pdf
-from jobs import TERMINAL, InMemoryJobStore, JobManager
 
-app = FastAPI(title="MindMesh API")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
-                   allow_methods=["*"], allow_headers=["*"])
+def require_auth(request: Request):
+    """Optional HTTP Basic gate. Active only when APP_PASSWORD is set."""
+    password = os.getenv("APP_PASSWORD")
+    if not password or request.url.path == "/api/health":
+        return
+    header = request.headers.get("authorization", "")
+    if header.startswith("Basic "):
+        try:
+            user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
+            if secrets.compare_digest(user, os.getenv("APP_USER", "mindmesh")) and \
+               secrets.compare_digest(pw, password):
+                return
+        except Exception:
+            pass
+    raise HTTPException(401, "Authentication required",
+                        headers={"WWW-Authenticate": 'Basic realm="MindMesh"'})
 
+
+app = FastAPI(title="MindMesh API", dependencies=[Depends(require_auth)])
+
+origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
 store = InMemoryJobStore()          # swap for a SQLite-backed JobStore later
 manager = JobManager(store)
 
@@ -93,3 +133,8 @@ def report_pdf(job_id: str):
 @app.get("/api/health")
 async def health():
     return {"ok": True}
+
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():  # present in Docker; absent during local dev
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

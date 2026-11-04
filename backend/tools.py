@@ -5,6 +5,8 @@ from tavily import TavilyClient
 import os
 from rich import print
 from dotenv import load_dotenv
+import ipaddress, socket
+from urllib.parse import urlparse
 
 load_dotenv()
 
@@ -20,9 +22,21 @@ def web_search(query:str)->str:
         out.append(f"Title:{r['title']}\n URL:{r['url']}\n Snippet={r['content'][:300]}\n")
     return "\n-------\n".join(out)
 
+def _is_public(url: str) -> bool:
+    p = urlparse(url)
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    try:
+        ips = {ai[4][0] for ai in socket.getaddrinfo(p.hostname, None)}
+    except (socket.gaierror, ValueError):
+        return False
+    return all(ipaddress.ip_address(ip).is_global for ip in ips)
+
 @tool
 def scrape_url(url:str)->str:
     """Scrape and return clean text content from a given URL for deeper reading"""
+    if not _is_public(url):
+        return "Could not scrape url: address not allowed"
     try:
         resp=requests.get(url,timeout=8,headers={"User-Agent":"Mozilla/5.0"})
         soup=BeautifulSoup(resp.text,"html.parser")
