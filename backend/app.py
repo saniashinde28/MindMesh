@@ -25,8 +25,26 @@ from jobs import (
     JobManager,
     TERMINAL
 )
+import time
+from collections import defaultdict, deque
+from jobs import QueueFull 
 
 from export import build_pdf
+
+RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_HOUR", "5"))
+_hits: dict[str, deque] = defaultdict(deque)
+
+
+def check_rate_limit(request: Request):
+    fwd = request.headers.get("x-forwarded-for")
+    ip = fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "unknown")
+    now, q = time.time(), _hits[ip]
+    while q and q[0] < now - 3600:
+        q.popleft()
+    if len(q) >= RATE_LIMIT:
+        raise HTTPException(429, "Research limit reached. Please try again in an hour.",
+                            headers={"Retry-After": "3600"})
+    q.append(now)
 
 def require_auth(request: Request):
     """Optional HTTP Basic gate. Active only when APP_PASSWORD is set."""
@@ -77,8 +95,12 @@ def _slug(topic: str) -> str:
 
 
 @app.post("/api/research", status_code=202)
-async def start_research(req: ResearchRequest):
-    return {"job_id": manager.submit(req.topic.strip())}
+async def start_research(req: ResearchRequest, request: Request):
+    check_rate_limit(request)
+    try:
+        return {"job_id": manager.submit(req.topic.strip())}
+    except QueueFull:
+        raise HTTPException(503, "The research queue is full. Please try again in a few minutes.")
 
 
 @app.get("/api/research/{job_id}")
